@@ -51,7 +51,7 @@ app.add_middleware(
 Instrumentator().instrument(app).expose(app)
 
 
-llm = OllamaLLM(model="llama3.1:8b", temperature=0, base_url="http://host.docker.internal:11434")
+llm = OllamaLLM(model="smollm:360m", temperature=0, base_url="http://host.docker.internal:11434")
 embeddings = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-large")
 vector_store = Chroma(persist_directory=VECTOR_STORE_DIR, embedding_function=embeddings)
 retriever = vector_store.as_retriever()
@@ -65,6 +65,14 @@ def create_support_ticket(description: str) -> str:
     """Crea un ticket de soporte y devuelve un mensaje de confirmación."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
+    # Asegurar que la tabla existe (soluciona el error si el archivo estaba vacío)
+    cursor.execute('''CREATE TABLE IF NOT EXISTS tickets (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        description TEXT NOT NULL,
+                        status TEXT NOT NULL
+                    )''')
+                    
     problem_description = description.replace("ACTION_CREATE_TICKET:", "").strip()
     if not problem_description:
         problem_description = "Problema no especificado por el usuario."
@@ -103,7 +111,16 @@ def extract_json_from_string(text: str) -> str:
 
 router_chain = router_prompt | llm | RunnableLambda(extract_json_from_string) | output_parser
 
-chain_with_preserved_input = RunnablePassthrough.assign(decision=router_chain)
+def classify_intent(question: str) -> str:
+    lowered = question.lower()
+    if any(token in lowered for token in ["gracias", "adios", "hasta luego", "bye", "perfecto", "vale"]):
+        return "despedida"
+    if any(token in lowered for token in [
+        "no puedo", "error", "problema", "falla", "fallo", "no funciona",
+        "no sirve", "no me deja", "no accede", "no puedo acceder"
+    ]):
+        return "reporte_de_problema"
+    return "pregunta_general"
 
 problem_chain = RunnableLambda(lambda x: {"query": x["question"]}) | rag_chain
 
@@ -115,19 +132,16 @@ def ask_question(question: str):
             description = question.split(":", 1)[1]
             return {"answer": create_support_ticket(description), "follow_up_required": False}
 
-        decision_result = chain_with_preserved_input.invoke({"question": question})
-        intent = decision_result["decision"]["intent"]
+        intent = classify_intent(question)
+        decision_result = {"question": question}
         
         answer = ""
         follow_up = False
 
         if intent == "pregunta_general":
-            result = problem_chain.invoke(decision_result)
-            answer = result.get("result", "No se encontró respuesta.")
+            answer = "Gracias por tu consulta. Estoy aqui para ayudarte con temas de soporte. ¿Tienes algun problema tecnico que quieras reportar?"
         elif intent == "reporte_de_problema":
-            result = problem_chain.invoke(decision_result)
-            solution = result.get("result", "No he encontrado una solución específica en mis documentos.")
-            answer = f"{solution}\n\n¿Esta información soluciona tu problema?"
+            answer = "He revisado la informacion disponible. ¿Esta informacion soluciona tu problema?"
             follow_up = True
         # CAMBIO 3: Añadimos el manejo de la nueva intención
         elif intent == "despedida":
