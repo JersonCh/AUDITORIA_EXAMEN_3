@@ -1,4 +1,4 @@
-**[Repositorio en GitHub: AUDITORIA_EXAMEN_3](https://github.com/TuUsuario/AUDITORIA_EXAMEN_3)**
+**[Repositorio en GitHub: AUDITORIA_EXAMEN_3](https://github.com/JersonCh/AUDITORIA_EXAMEN_3)**
 
 # UNIVERSIDAD PRIVADA DE TACNA
 ## FACULTAD DE INGENIERÍA
